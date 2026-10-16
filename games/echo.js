@@ -23,7 +23,7 @@ export default {
   glyph: '◎',
   accent: '#7cf3ff',
   original: true,
-  howto: '방향키 / WASD 또는 화면 드래그로 이동 · Space 또는 위상 버튼을 누르는 동안 메아리 통과 (게이지 소모)',
+  howto: '방향키 / WASD, 또는 화면 아무 곳이나 드래그 (손가락이 움직인 만큼 이동) · Space 또는 위상 버튼을 누르는 동안 메아리 통과',
 
   mount(el, api) {
     const { c, ctx } = makeCanvas(el, W, H);
@@ -159,7 +159,14 @@ export default {
       ctx.fillRect(16, H - 18, (W - 32) * st.phase, 6);
     }
 
-    const setTarget = (e) => { if (e.buttons || e.pointerType === 'touch') target = pointerPos(c, e, W, H); };
+    // Relative drag: the dot moves as far as the finger does, so the finger never hides it.
+    let drag = null;
+    const dragTo = (e) => {
+      if (!drag) return;
+      const q = pointerPos(c, e, W, H);
+      target = { x: drag.px + q.x - drag.fx, y: drag.py + q.y - drag.fy };
+    };
+    const endDrag = () => { drag = null; target = null; };
     const offs = [
       listen(window, 'keydown', (e) => {
         const d = keyDir(e);
@@ -172,12 +179,14 @@ export default {
         if (e.code === 'Space') phaseHeld = false;
       }),
       listen(c, 'pointerdown', (e) => {
-        target = pointerPos(c, e, W, H);
+        if (!st) return;
+        const q = pointerPos(c, e, W, H);
+        drag = { fx: q.x, fy: q.y, px: st.p.x, py: st.p.y };
         try { c.setPointerCapture(e.pointerId); } catch { /* capture is a nicety; dragging still works inside the canvas */ }
       }),
-      listen(c, 'pointermove', setTarget),
-      listen(c, 'pointerup', () => { target = null; }),
-      listen(c, 'pointercancel', () => { target = null; }),
+      listen(c, 'pointermove', dragTo),
+      listen(c, 'pointerup', endDrag),
+      listen(c, 'pointercancel', endDrag),
       listen(phaseBtn, 'pointerdown', (e) => { e.preventDefault(); phaseHeld = true; }),
       listen(phaseBtn, 'pointerup', () => { phaseHeld = false; }),
       listen(phaseBtn, 'pointerleave', () => { phaseHeld = false; }),

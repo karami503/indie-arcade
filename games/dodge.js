@@ -18,7 +18,7 @@ export default {
   unit: '초',
   glyph: '⁘',
   accent: '#ff5c8a',
-  howto: '방향키 / WASD 또는 화면을 누른 채 드래그해서 이동',
+  howto: '방향키 / WASD, 또는 화면 아무 곳이나 드래그 (손가락이 움직인 만큼 이동)',
   mount: (el, api) => canvasGame(el, api, {
     w: W, h: H, bg: '#0b0710',
     intro: { title: '탄막 피하기', text: '시간이 갈수록 탄이 많아지고 빨라진다.', button: '시작' },
@@ -30,9 +30,12 @@ export default {
       s.t++;
       let dx = (inp.held.has('right') ? 1 : 0) - (inp.held.has('left') ? 1 : 0);
       let dy = (inp.held.has('down') ? 1 : 0) - (inp.held.has('up') ? 1 : 0);
-      if (!dx && !dy && inp.pointer?.down) {
-        dx = inp.pointer.x - s.p.x;
-        dy = inp.pointer.y - s.p.y;
+      // Relative drag: the ship moves as far as the finger does, so the finger never hides it.
+      if (!inp.pointer?.down) s.drag = null;
+      else if (!dx && !dy) {
+        s.drag ??= { fx: inp.pointer.x, fy: inp.pointer.y, px: s.p.x, py: s.p.y };
+        dx = s.drag.px + inp.pointer.x - s.drag.fx - s.p.x;
+        dy = s.drag.py + inp.pointer.y - s.drag.fy - s.p.y;
         if (Math.hypot(dx, dy) < SPEED) dx = dy = 0;
       }
       const len = Math.hypot(dx, dy) || 1;

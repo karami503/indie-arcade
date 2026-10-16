@@ -44,6 +44,7 @@ function spawn(s) {
   s.next = nextType(s);
   const m = SHAPES[type];
   s.piece = { type, m, x: Math.floor((COLS - m[0].length) / 2), y: 0 };
+  s.drag = null; // a finger still down from the last piece starts a fresh drag
   return !collides(s.board, m, s.piece.x, 0);
 }
 
@@ -58,7 +59,7 @@ function lock(s) {
 
 function action(e) {
   if (e.type === 'click') return 'rotate';
-  if (e.type === 'swipe') return { left: 'left', right: 'right', down: 'drop', up: 'rotate' }[e.dir];
+  if (e.type === 'swipe') return { down: 'drop', up: 'rotate' }[e.dir]; // sideways is handled by dragging
   if (e.code === 'Space') return 'drop';
   if (e.code === 'KeyX') return 'rotate';
   return { left: 'left', right: 'right', down: 'soft', up: 'rotate' }[e.dir];
@@ -81,7 +82,7 @@ export default {
   unit: '점',
   glyph: '▚',
   accent: '#b388ff',
-  howto: '←→ 이동 · ↑/X 회전 · ↓ 천천히 · Space 바로 내리기 · 모바일: 탭 회전, 스와이프 이동/내리기',
+  howto: '←→ 이동 · ↑/X 회전 · ↓ 천천히 · Space 바로 내리기 · 모바일: 좌우로 드래그 이동, 탭 회전, 아래로 스와이프 바로 내리기',
   mount: (el, api) => canvasGame(el, api, {
     w: W, h: H, bg: '#0a0b14',
     intro: { title: '테트리스', text: '블록이 꼭대기에 닿으면 끝.', button: '시작' },
@@ -101,6 +102,14 @@ export default {
         p.x += dx; p.y += dy; p.m = m;
         return true;
       };
+      const ptr = inp.pointer;
+      if (!ptr?.down) s.drag = null;
+      else {
+        s.drag ??= { x0: ptr.x, col0: p.x };
+        const col = s.drag.col0 + Math.round((ptr.x - s.drag.x0) / C);
+        while (p.x < col && tryMove(1, 0));
+        while (p.x > col && tryMove(-1, 0));
+      }
       for (const e of inp.events) {
         const act = action(e);
         if (act === 'left') tryMove(-1, 0);

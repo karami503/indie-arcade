@@ -65,7 +65,12 @@ export default {
       playback();
     }
 
-    function start() { seq = []; nextRound(); }
+    function start() {
+      // iOS only allows audio that is created or resumed inside a tap; start() runs from the start button.
+      try { audio ??= new AudioContext(); audio.resume(); } catch { /* no audio: lights still play */ }
+      seq = [];
+      nextRound();
+    }
 
     function press(i) {
       if (state !== 'input') return;
