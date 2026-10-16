@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src https://api.github.com; img-src 'self' data: https://avatars.githubusercontent.com; base-uri 'none'; form-action 'none'">
+  <title>Indie Arcade</title>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&display=swap">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='10' fill='none' stroke='%237cf3ff' stroke-width='4'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="top">
+    <a class="logo" href="#/">INDIE<span>ARCADE</span></a>
+    <button class="chip" id="profileBtn" type="button" aria-haspopup="dialog">
+      <span class="lv" id="lvBadge">Lv 1</span>
+      <span id="nickLabel">플레이어</span>
+      <span class="cloud" id="cloudDot" title="클라우드 저장 꺼짐"></span>
+    </button>
+  </header>
+
+  <main id="home" class="wrap"></main>
+
+  <main id="play" class="wrap" hidden>
+    <div class="play-bar">
+      <a class="btn ghost" href="#/">← 목록</a>
+      <h2 id="playTitle"></h2>
+      <div class="hud"><span id="hud"></span><span class="best" id="best"></span></div>
+    </div>
+    <div class="stage" id="stage"></div>
+    <p class="howto" id="howto"></p>
+  </main>
+
+  <dialog id="profile">
+    <form method="dialog" class="dlg">
+      <h3>프로필 &amp; 클라우드 저장</h3>
+      <label class="field">닉네임
+        <input id="nickInput" maxlength="16" autocomplete="nickname">
+      </label>
+
+      <section id="syncOff">
+        <p class="muted">기록은 이 브라우저에 자동 저장돼요. 다른 기기와 공유하려면 GitHub 토큰을 연결하세요.
+          세이브는 <b>내 계정의 비공개 Gist</b>에만 저장됩니다.</p>
+        <ol class="steps">
+          <li><a id="tokenLink" target="_blank" rel="noopener noreferrer">GitHub 토큰 만들기</a> (권한은 <code>gist</code> 하나만)</li>
+          <li>생성된 토큰을 아래에 붙여 넣기</li>
+        </ol>
+        <label class="field">GitHub 토큰
+          <input id="tokenInput" type="password" autocomplete="off" placeholder="ghp_..." spellcheck="false">
+        </label>
+        <button class="btn primary" id="connectBtn" type="button">연결하고 동기화</button>
+      </section>
+
+      <section id="syncOn" hidden>
+        <div class="gh-user"><img id="ghAvatar" alt="" width="36" height="36"><span id="ghLogin"></span></div>
+        <div class="row">
+          <button class="btn primary" id="syncBtn" type="button">지금 동기화</button>
+          <button class="btn ghost" id="disconnectBtn" type="button">연결 해제</button>
+        </div>
+      </section>
+
+      <p class="status" id="syncStatus" role="status"></p>
+      <div class="row end"><button class="btn ghost" value="close">닫기</button></div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
