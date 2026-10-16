@@ -13,10 +13,19 @@
 | 두뇌 (5) | 색깔 말하기, 사이먼, 타자 연습, 암산 러시, 숫자 야구 |
 | 보드 (2) | 틱택토, 사목 (AI 상대 연승) |
 
-## 유저 데이터 저장 (무료)
+## 유저 데이터 저장 (무료, Supabase)
 - 모든 기록(최고 점수, 플레이 수, 닉네임, 레벨)은 먼저 브라우저 `localStorage` 에 저장된다.
-- 프로필 → **클라우드 저장** 에 `gist` 권한만 있는 GitHub 토큰을 넣으면, 유저 **본인 계정의 비공개 Gist** (`indie-arcade-save`) 에 동기화된다. 기기가 여러 대여도 기록이 합쳐진다.
-- 토큰은 그 유저의 브라우저에만 저장되고, CSP 로 `api.github.com` 외의 곳으로는 요청을 보낼 수 없게 막아 두었다.
+- 게임이 끝날 때마다 운영자의 Supabase DB 하나(`scores` 테이블)에 올라가고, 게임 화면 아래에 **전체 랭킹 TOP 10** 이 보인다.
+- 플레이어는 가입할 필요가 없다. 브라우저마다 익명 계정이 자동으로 만들어지고, row-level security 때문에 자기 행만 쓸 수 있다.
+- `js/config.js` 가 비어 있으면 랭킹은 꺼지고 기록은 브라우저에만 남는다.
+
+### Supabase 설정 (운영자 1회)
+1. https://supabase.com → GitHub 로 로그인 → New project
+2. Authentication → Sign In / Providers → **Allow anonymous sign-ins** 켜기
+3. SQL Editor 에 [supabase/schema.sql](supabase/schema.sql) 붙여 넣고 Run
+4. Project Settings → API 의 Project URL 과 anon(publishable) 키를 `js/config.js` 에 넣기 (공개해도 되는 키)
+
+알려진 한계: 브라우저 데이터를 지우면 새 익명 플레이어가 되고, 점수는 브라우저가 보고하는 값이라 조작을 막지는 못한다.
 
 ## 로컬 실행
 ```bash

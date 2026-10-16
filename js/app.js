@@ -1,19 +1,20 @@
 import { GAMES, byId } from '../games/index.js';
 import * as store from './store.js';
+import * as cloud from './cloud.js';
 
 const $ = (id) => document.getElementById(id);
-const dirOf = (id) => byId(id)?.better ?? 'high';
 const XP_PER_PLAY = 10;
 const XP_CURVE = 40;
 const TOAST_MS = 2200;
-const TOKEN_URL = 'https://github.com/settings/tokens/new?scopes=gist&description=Indie%20Arcade%20save';
-const AVATAR_ORIGIN = 'https://avatars.githubusercontent.com/';
 
 let save = store.load();
 let unmount = null;
-let syncChain = Promise.resolve();
+let current = null;
 let toastTimer = 0;
 let filter = '전체';
+let pushChain = Promise.resolve();
+let cloudState = cloud.enabled() ? 'busy' : 'off';
+let cloudError = '';
 
 const fmt = (g, v) => (v == null ? '—' : `${v}${g.unit}`);
 
@@ -39,17 +40,36 @@ function toast(msg) {
   toastTimer = setTimeout(() => t.classList.remove('show'), TOAST_MS);
 }
 
-function setStatus(msg, isError = false) {
-  $('syncStatus').textContent = msg;
-  $('syncStatus').classList.toggle('error', isError);
-}
+const CLOUD_TEXT = {
+  off: '랭킹 서버가 아직 연결되지 않았어요. 기록은 이 브라우저에만 저장돼요.',
+  busy: '랭킹에 저장 중…',
+  ok: '기록은 자동으로 전체 랭킹에 저장돼요.',
+};
+const cloudText = () => (cloudState === 'error' ? `랭킹 저장 실패: ${cloudError} (기록은 이 브라우저에 남아 있어요)` : CLOUD_TEXT[cloudState]);
 
 function renderChip() {
   $('lvBadge').textContent = `Lv ${levelOf(save).lv}`;
   $('nickLabel').textContent = save.nickname;
-  const on = Boolean(store.getToken());
-  $('cloudDot').classList.toggle('on', on);
-  $('cloudDot').title = on ? '클라우드 저장 켜짐' : '클라우드 저장 꺼짐';
+  const dot = $('cloudDot');
+  dot.className = `cloud ${cloudState === 'ok' ? 'on' : cloudState}`;
+  dot.title = cloudText();
+  $('cloudInfo').textContent = cloudText();
+}
+
+function setCloud(state, error = '') {
+  cloudState = state;
+  cloudError = error;
+  renderChip();
+}
+
+// Serialized so pushes never overtake each other; each one sends the latest save.
+function cloudSync() {
+  if (!cloud.enabled()) return pushChain;
+  setCloud('busy');
+  pushChain = pushChain
+    .then(() => cloud.push(save))
+    .then(() => setCloud('ok'), (e) => setCloud('error', e.message));
+  return pushChain;
 }
 
 function statBox(label, value) {
@@ -83,12 +103,12 @@ function renderHome() {
   bar.setAttribute('aria-valuenow', String(Math.round(progress * 100)));
   const nums = h('div', 'stat-nums');
   nums.append(statBox('레벨', lv), statBox('총 플레이', plays), statBox('XP', xp));
-  const cloud = h('button', 'btn ghost', store.getToken() ? '☁ 클라우드 저장 켜짐' : '☁ 클라우드 저장 연결하기');
-  cloud.type = 'button';
-  cloud.addEventListener('click', openProfile);
+  const nick = h('button', 'btn ghost', '✎ 닉네임 바꾸기');
+  nick.type = 'button';
+  nick.addEventListener('click', openProfile);
   const stats = h('section', 'stats');
   stats.append(h('p', 'eyebrow', 'PLAYER'), h('h2', null, save.nickname), nums, bar,
-    h('p', 'muted small', `다음 레벨까지 ${toNext} XP · 한 판에 ${XP_PER_PLAY} XP`), cloud);
+    h('p', 'muted small', `다음 레벨까지 ${toNext} XP · 한 판에 ${XP_PER_PLAY} XP`), nick);
 
   const grid = h('section', 'grid');
   GAMES.filter((g) => filter === '전체' || g.category === filter).forEach((g, i) => {
@@ -127,13 +147,35 @@ function toolbar() {
   return bar;
 }
 
+async function renderBoard(g) {
+  const box = $('board');
+  box.hidden = !cloud.enabled();
+  if (box.hidden) return;
+  $('boardNote').textContent = '불러오는 중…';
+  try {
+    const rows = await cloud.top(g.id, g.better);
+    if (current !== g) return; // player left this game while loading
+    const me = cloud.myId();
+    $('boardList').replaceChildren(...rows.map((r) => {
+      const li = h('li', r.player_id === me ? 'me' : null);
+      li.append(h('span', 'name', r.nickname), h('span', 'score', fmt(g, r.best)));
+      return li;
+    }));
+    $('boardNote').textContent = rows.length ? '' : '아직 기록이 없어요. 첫 1등이 되어 보세요!';
+  } catch (e) {
+    if (current === g) $('boardNote').textContent = e.message;
+  }
+}
+
 function showPlay(g) {
   unmount?.();
+  current = g;
   $('home').hidden = true;
   $('play').hidden = false;
   $('playTitle').textContent = g.title;
   $('howto').textContent = g.howto;
   $('hud').textContent = '';
+  $('boardList').replaceChildren();
   const stage = $('stage');
   stage.replaceChildren();
   stage.style.setProperty('--accent', g.accent);
@@ -147,9 +189,10 @@ function showPlay(g) {
       if (res.isBest) toast(`신기록! ${fmt(g, score)}`);
       showBest();
       renderChip();
-      autoSync();
+      cloudSync().then(() => renderBoard(g));
     },
   });
+  renderBoard(g);
 }
 
 function route() {
@@ -159,6 +202,7 @@ function route() {
   else {
     unmount?.();
     unmount = null;
+    current = null;
     $('play').hidden = true;
     $('home').hidden = false;
     renderHome();
@@ -166,87 +210,22 @@ function route() {
   window.scrollTo(0, 0);
 }
 
-// Serialized so two game-ends never race on the same gist.
-function autoSync() {
-  const token = store.getToken();
-  if (!token) return syncChain;
-  syncChain = syncChain.then(async () => {
-    $('cloudDot').classList.add('busy');
-    try {
-      const merged = await store.sync(save, token, dirOf);
-      // Merge again: a game may have ended while the request was in flight.
-      save = store.persist(store.merge(save, merged, dirOf));
-      setStatus(`동기화 완료 · ${new Date().toLocaleTimeString('ko-KR')}`);
-      renderChip();
-      if (!$('home').hidden) renderHome();
-    } catch (e) {
-      setStatus(e.message, true);
-      toast('클라우드 동기화 실패 — 기록은 이 브라우저에 저장됨');
-    } finally {
-      $('cloudDot').classList.remove('busy');
-    }
-  });
-  return syncChain;
-}
-
-function renderSync() {
-  const on = Boolean(store.getToken());
-  const user = store.getUser();
-  $('syncOff').hidden = on;
-  $('syncOn').hidden = !on;
-  if (on && user) {
-    $('ghLogin').textContent = `@${user.login}`;
-    if (typeof user.avatar === 'string' && user.avatar.startsWith(AVATAR_ORIGIN)) $('ghAvatar').src = user.avatar;
-  }
-}
-
 function openProfile() {
   $('nickInput').value = save.nickname;
-  renderSync();
-  setStatus('');
+  renderChip();
   $('profile').showModal();
 }
 
 function bindProfile() {
-  $('tokenLink').href = TOKEN_URL;
   $('profileBtn').addEventListener('click', openProfile);
-
+  $('profileClose').addEventListener('click', () => $('profile').close());
   $('nickInput').addEventListener('change', () => {
     const nick = $('nickInput').value.trim().slice(0, 16);
-    if (!nick) return;
+    if (!nick || nick === save.nickname) return;
     save = store.persist(store.withNickname(save, nick));
     renderChip();
     if (!$('home').hidden) renderHome();
-    autoSync();
-  });
-
-  $('connectBtn').addEventListener('click', async () => {
-    const token = $('tokenInput').value.trim();
-    if (!/^[A-Za-z0-9_]{20,255}$/.test(token)) return setStatus('토큰 형식이 올바르지 않아요.', true);
-    $('connectBtn').disabled = true;
-    setStatus('연결 중…');
-    try {
-      const user = await store.connect(token);
-      $('tokenInput').value = '';
-      renderSync();
-      renderChip();
-      setStatus(`@${user.login} 연결됨. 동기화 중…`);
-      await autoSync();
-    } catch (e) {
-      setStatus(e.message, true);
-    } finally {
-      $('connectBtn').disabled = false;
-    }
-  });
-
-  $('syncBtn').addEventListener('click', () => { setStatus('동기화 중…'); autoSync(); });
-
-  $('disconnectBtn').addEventListener('click', () => {
-    store.disconnect();
-    renderSync();
-    renderChip();
-    if (!$('home').hidden) renderHome();
-    setStatus('연결 해제됨. 기록은 이 브라우저에 남아 있어요.');
+    cloudSync();
   });
 }
 
@@ -254,4 +233,4 @@ bindProfile();
 window.addEventListener('hashchange', route);
 renderChip();
 route();
-autoSync(); // pull records from other devices
+cloudSync(); // upload records made before the leaderboard existed, and sign in early

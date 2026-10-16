@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src https://api.github.com; img-src 'self' data: https://avatars.githubusercontent.com; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src https://*.supabase.co; img-src 'self' data:; base-uri 'none'; form-action 'none'">
   <title>Indie Arcade</title>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&display=swap">
@@ -16,7 +16,7 @@
     <button class="chip" id="profileBtn" type="button" aria-haspopup="dialog">
       <span class="lv" id="lvBadge">Lv 1</span>
       <span id="nickLabel">플레이어</span>
-      <span class="cloud" id="cloudDot" title="클라우드 저장 꺼짐"></span>
+      <span class="cloud" id="cloudDot"></span>
     </button>
   </header>
 
@@ -30,39 +30,22 @@
     </div>
     <div class="stage" id="stage"></div>
     <p class="howto" id="howto"></p>
+    <section class="board" id="board" hidden aria-labelledby="boardTitle">
+      <h3 id="boardTitle">전체 랭킹 TOP 10</h3>
+      <ol id="boardList"></ol>
+      <p class="muted small" id="boardNote" role="status"></p>
+    </section>
   </main>
 
-  <dialog id="profile">
-    <form method="dialog" class="dlg">
-      <h3>프로필 &amp; 클라우드 저장</h3>
-      <label class="field">닉네임
+  <dialog id="profile" aria-labelledby="profileTitle">
+    <div class="dlg">
+      <h3 id="profileTitle">프로필</h3>
+      <label class="field">닉네임 (랭킹에 표시돼요)
         <input id="nickInput" maxlength="16" autocomplete="nickname">
       </label>
-
-      <section id="syncOff">
-        <p class="muted">기록은 이 브라우저에 자동 저장돼요. 다른 기기와 공유하려면 GitHub 토큰을 연결하세요.
-          세이브는 <b>내 계정의 비공개 Gist</b>에만 저장됩니다.</p>
-        <ol class="steps">
-          <li><a id="tokenLink" target="_blank" rel="noopener noreferrer">GitHub 토큰 만들기</a> (권한은 <code>gist</code> 하나만)</li>
-          <li>생성된 토큰을 아래에 붙여 넣기</li>
-        </ol>
-        <label class="field">GitHub 토큰
-          <input id="tokenInput" type="password" autocomplete="off" placeholder="ghp_..." spellcheck="false">
-        </label>
-        <button class="btn primary" id="connectBtn" type="button">연결하고 동기화</button>
-      </section>
-
-      <section id="syncOn" hidden>
-        <div class="gh-user"><img id="ghAvatar" alt="" width="36" height="36"><span id="ghLogin"></span></div>
-        <div class="row">
-          <button class="btn primary" id="syncBtn" type="button">지금 동기화</button>
-          <button class="btn ghost" id="disconnectBtn" type="button">연결 해제</button>
-        </div>
-      </section>
-
-      <p class="status" id="syncStatus" role="status"></p>
-      <div class="row end"><button class="btn ghost" value="close">닫기</button></div>
-    </form>
+      <p class="muted small" id="cloudInfo" role="status"></p>
+      <div class="row end"><button class="btn ghost" id="profileClose" type="button">닫기</button></div>
+    </div>
   </dialog>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>

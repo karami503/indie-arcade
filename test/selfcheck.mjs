@@ -1,20 +1,11 @@
 // Run: node test/selfcheck.mjs
 import assert from 'node:assert/strict';
-import { merge, normalize, recordPlay, emptySave, sync, connect, getToken } from '../js/store.js';
+import { normalize, recordPlay, emptySave, pickBetter } from '../js/store.js';
 import { slideRow, move, canMove } from '../games/g2048.js';
 import { placeMines, floodOpen, neighbors } from '../games/mines.js';
 
-const dirOf = (id) => (id === 'mines' ? 'low' : 'high');
-
-// merge: best picks the better side per direction, plays take the max, newer nickname wins
-const a = { v: 1, nickname: 'old', updatedAt: 1, games: { echo: { best: 5, plays: 3 }, mines: { best: 40, plays: 2 } } };
-const b = { v: 1, nickname: 'new', updatedAt: 2, games: { echo: { best: 9, plays: 1 }, mines: { best: 25.5, plays: 5 }, snake: { best: null, plays: 1 } } };
-const m = merge(a, b, dirOf);
-assert.equal(m.nickname, 'new');
-assert.deepEqual(m.games.echo, { best: 9, plays: 3 });
-assert.deepEqual(m.games.mines, { best: 25.5, plays: 5 });
-assert.deepEqual(m.games.snake, { best: null, plays: 1 });
-assert.deepEqual(merge(m, m, dirOf), m, 'merge is idempotent');
+assert.equal(pickBetter('low', 40, 25.5), 25.5);
+assert.equal(pickBetter('high', null, 3), 3);
 
 // normalize drops junk from untrusted JSON
 const n = normalize({ nickname: 42, games: { echo: { best: 'x', plays: -3 }, '<img>': { best: 1 } } });
@@ -116,41 +107,61 @@ for (let i = 0; i < 300; i++) {
   assert.ok(answer >= 0);
 }
 
-// Gist sync against a fake GitHub API: first sync creates a private gist, second merges into it.
+
+// Supabase client against a fake server: anonymous sign-in once, refresh when expired,
+// re-sign-in when the refresh token is dead, upsert own rows, filter bad leaderboard rows.
 const mem = new Map();
 globalThis.localStorage = { getItem: (k) => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, String(v)), removeItem: (k) => mem.delete(k) };
-let gist = null;
-const calls = [];
+const cfg = (await import('../js/config.js')).default;
+const cloud = await import('../js/cloud.js');
+assert.equal(cloud.enabled(), cfg.url !== '' && cfg.anonKey !== '');
+Object.assign(cfg, { url: 'https://test.supabase.co', anonKey: 'anon_test' });
+assert.equal(cloud.enabled(), true);
+
+const reqs = [];
+let tokenStatus = 200, seq = 0;
+const reply = (status, body) => ({ ok: status < 300, status, text: async () => (body === undefined ? '' : JSON.stringify(body)) });
+const auth = (uid) => ({ access_token: `a${++seq}`, refresh_token: `r${seq}`, expires_in: 3600, user: { id: uid } });
 globalThis.fetch = async (url, init = {}) => {
-  const path = url.replace('https://api.github.com', '');
-  calls.push(`${init.method || 'GET'} ${path}`);
-  assert.equal(init.headers.Authorization, 'Bearer test_token_0000000000');
-  const json = (status, body) => ({ ok: status < 300, status, json: async () => body });
-  if (path === '/user') return json(200, { login: 'tester', avatar_url: 'https://avatars.githubusercontent.com/u/1' });
-  if (path.startsWith('/gists?')) return json(200, gist ? [{ id: gist.id, description: gist.description, files: { 'indie-arcade.json': {} } }] : []);
-  if (path === '/gists' && init.method === 'POST') {
-    const body = JSON.parse(init.body);
-    assert.equal(body.public, false);
-    gist = { id: 'g1', ...body };
-    return json(201, gist);
-  }
-  if (path === '/gists/g1' && !init.method) return json(200, gist);
-  if (path === '/gists/g1' && init.method === 'PATCH') {
-    gist = { ...gist, files: JSON.parse(init.body).files };
-    return json(200, gist);
-  }
-  return json(404, {});
+  const path = url.replace(cfg.url, '');
+  reqs.push({ path, method: init.method || 'GET', headers: init.headers, body: init.body && JSON.parse(init.body) });
+  assert.equal(init.headers.apikey, 'anon_test');
+  if (path === '/auth/v1/signup') return reply(200, auth(`u${seq + 1}`));
+  if (path.startsWith('/auth/v1/token')) return tokenStatus === 200 ? reply(200, auth('u1')) : reply(tokenStatus, { error: 'invalid_grant' });
+  if (path.startsWith('/rest/v1/scores?on_conflict')) return reply(201);
+  if (path.startsWith('/rest/v1/scores?select')) return reply(200, [{ player_id: 'u1', nickname: 'A', best: 9 }, { nickname: 5, best: 'x' }]);
+  return reply(404, {});
 };
-await connect('test_token_0000000000');
-assert.equal(getToken(), 'test_token_0000000000');
-const deviceA = { v: 1, nickname: 'A', updatedAt: 10, games: { echo: { best: 7, plays: 2 } } };
-await sync(deviceA, 'test_token_0000000000', dirOf);
-assert.ok(calls.includes('POST /gists'));
-mem.delete('arcade.gist'); // device B has no cached gist id: must find it by description
-const deviceB = { v: 1, nickname: 'B', updatedAt: 20, games: { echo: { best: 3, plays: 5 }, mines: { best: 50, plays: 1 } } };
-const merged = await sync(deviceB, 'test_token_0000000000', dirOf);
-assert.deepEqual(merged.games, { echo: { best: 7, plays: 5 }, mines: { best: 50, plays: 1 } });
-assert.equal(merged.nickname, 'B');
-assert.deepEqual(JSON.parse(gist.files['indie-arcade.json'].content), merged);
+const paths = () => reqs.splice(0).map((r) => `${r.method} ${r.path.split('?')[0]}`);
+const twoGames = { v: 1, nickname: '테스터', updatedAt: 1, games: { echo: { best: 7, plays: 2 }, mines: { best: null, plays: 1 } } };
+
+await cloud.push(emptySave());
+assert.deepEqual(paths(), [], 'nothing to upload: no sign-in either');
+await Promise.all([cloud.session(), cloud.session()]);
+assert.deepEqual(paths(), ['POST /auth/v1/signup'], 'concurrent callers share one sign-in');
+await cloud.push(twoGames);
+const up = reqs[0];
+assert.deepEqual(paths(), ['POST /rest/v1/scores']);
+assert.equal(up.headers.Authorization, 'Bearer a1');
+assert.match(up.headers.Prefer, /resolution=merge-duplicates/);
+assert.deepEqual(up.body.map((r) => [r.player_id, r.game_id, r.nickname, r.best, r.plays]), [['u1', 'echo', '테스터', 7, 2], ['u1', 'mines', '테스터', null, 1]]);
+
+const expire = () => { const s = JSON.parse(mem.get('arcade.sb.session')); mem.set('arcade.sb.session', JSON.stringify({ ...s, exp: 0 })); };
+expire();
+await cloud.push(twoGames);
+assert.deepEqual(paths(), ['POST /auth/v1/token', 'POST /rest/v1/scores'], 'expired session refreshes');
+expire();
+tokenStatus = 400;
+await cloud.push(twoGames);
+assert.deepEqual(paths(), ['POST /auth/v1/token', 'POST /auth/v1/signup', 'POST /rest/v1/scores'], 'dead refresh token signs in again');
+
+const ranking = await cloud.top('mines', 'low');
+const q = reqs.splice(0)[0];
+assert.match(q.path, /game_id=eq\.mines&best=not\.is\.null&order=best\.asc&limit=10/);
+assert.equal(q.headers.Authorization, undefined, 'leaderboard is read anonymously');
+assert.deepEqual(ranking, [{ player_id: 'u1', nickname: 'A', best: 9 }]);
+
+globalThis.fetch = async () => { throw new TypeError('offline'); };
+await assert.rejects(cloud.top('echo', 'high'), /네트워크 오류/);
 
 console.log('selfcheck ok');
